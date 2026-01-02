@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="AI Gateway (Policy-driven)", lifespan=lifespan)
+app = FastAPI(title="Orbit Gateway (Policy-driven)", lifespan=lifespan)
 
 
 class GenerateRequest(BaseModel):

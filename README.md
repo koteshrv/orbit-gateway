@@ -1,10 +1,10 @@
-# AI Gateway (Policy-driven)
+# Orbit Gateway — Unified API & AI Governance Platform
 
-This repository provides a minimal FastAPI-based AI Gateway that enforces YAML-defined governance policies per tenant. It demonstrates:
+This repository provides a minimal FastAPI-based central gateway ("Orbit Gateway") that combines traditional API gateway features with AI governance. It demonstrates:
 
 - Tenant isolation via token-to-tenant mapping
 - PII redaction using tenant policy regexes
-- Rate limiting and token-based quota enforcement (in-memory demo)
+- Redis-backed rate limiting and token-based quota enforcement
 - Provider adapters for OpenAI, Azure OpenAI, and Ollama (local LLMs)
 - Audit logging to `logs/audit.log`
 
@@ -19,6 +19,7 @@ python -m pip install -r requirements.txt
 Run:
 
 ```bash
+export REDIS_URL=redis://localhost:6379/0
 uvicorn main:app --reload --host 0.0.0.0 --port 8080
 ```
 

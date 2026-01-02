@@ -1,6 +1,6 @@
 # TODO / Roadmap
 
-This file lists prioritized next work items for the `ai-gateway` PoC.
+This file lists prioritized next work items for the `orbit-gateway` (Orbit Gateway) PoC.
 
 Notes:
 - For local testing we recommend running Redis as a separate container (see `docker-compose.yml`).
