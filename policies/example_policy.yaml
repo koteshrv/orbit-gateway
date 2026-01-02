@@ -9,34 +9,34 @@ tenants:
     quota:
       monthly_tokens: 10000
     pii_patterns:
-      - "\b\d{12,16}\b"  # credit-card-like
-      - "\b\d{3}-\d{2}-\d{4}\b"  # SSN-like
-      - "\b[\w.-]+@[\w.-]+\.[A-Za-z]{2,6}\b"
+      - '\b\d{12,16}\b'  # credit-card-like
+      - '\b\d{3}-\d{2}-\d{4}\b'  # SSN-like
+      - '\b[\w.-]+@[\w.-]+\.[A-Za-z]{2,6}\b'
     provider_credentials:
       openai:
         api_key: ""  # set an API key here to enable live calls
       ollama:
         host: "http://localhost:11434"
-      routes:
-        sample_api:
-          description: "A simple proxied API; gateway will forward requests to this upstream."
-          upstream: "https://httpbin.org"
-          allow_methods: ["GET", "POST"]
-          rate_limit:
-            requests: 100
-            per_seconds: 60
-          quota:
-            monthly_requests: 10000
-          proxy: true
+    routes:
+      sample_api:
+        description: "A simple proxied API; gateway will forward requests to this upstream."
+        upstream: "https://httpbin.org"
+        allow_methods: ["GET", "POST"]
+        rate_limit:
+          requests: 100
+          per_seconds: 60
+        quota:
+          monthly_requests: 10000
+        proxy: true
 
-        ai_chat:
-          description: "An AI-enabled route that expects JSON {\"prompt\": ... } and uses the tenant's Ollama provider."
-          ai: true
-          provider: "ollama"
-          model: "llama2"
-          rate_limit:
-            requests: 10
-            per_seconds: 60
-          quota:
-            monthly_tokens: 5000
-          redact: true
+      ai_chat:
+        description: "An AI-enabled route that expects JSON {\"prompt\": ... } and uses the tenant's Ollama provider."
+        ai: true
+        provider: "ollama"
+        model: "llama2"
+        rate_limit:
+          requests: 10
+          per_seconds: 60
+        quota:
+          monthly_tokens: 5000
+        redact: true

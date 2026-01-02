@@ -5,3 +5,4 @@ pyyaml
 pydantic
 openai
 redis>=4.6.0
+tiktoken

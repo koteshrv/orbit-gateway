@@ -1,33 +1,51 @@
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import httpx
+import os
+import yaml
+
 from gateway.policy import PolicyStore
 from gateway.auth import get_tenant_from_token
 from gateway.middleware import RateLimiter, QuotaManager, redact_text, audit_log
 from gateway.providers import call_provider
 from gateway.store import create_redis
-import os
-import httpx
-from fastapi.responses import JSONResponse
-from fastapi import Body
+from gateway.tokenizer import estimate_tokens
 
-app = FastAPI(title="AI Gateway (Policy-driven)")
 
 POLICY_FILE = "policies/example_policy.yaml"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context to initialize and teardown shared resources.
+
+    Replaces the older `@app.on_event("startup")` decorator which may be
+    deprecated in newer FastAPI/Starlette versions in favor of a lifespan
+    context manager.
+    """
+    app.state.policies = PolicyStore.load(POLICY_FILE)
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    app.state.redis = create_redis(redis_url)
+    app.state.rate_limiter = RateLimiter(app.state.redis)
+    app.state.quota_mgr = QuotaManager(app.state.redis)
+    yield
+    # optional cleanup
+    try:
+        await app.state.redis.close()
+    except Exception:
+        pass
+
+
+app = FastAPI(title="AI Gateway (Policy-driven)", lifespan=lifespan)
 
 
 class GenerateRequest(BaseModel):
     model: str
     provider: str = "openai"
     prompt: str
-
-
-@app.on_event("startup")
-async def startup_event():
-    app.state.policies = PolicyStore.load(POLICY_FILE)
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    app.state.redis = create_redis(redis_url)
-    app.state.rate_limiter = RateLimiter(app.state.redis)
-    app.state.quota_mgr = QuotaManager(app.state.redis)
 
 
 @app.post("/v1/generate")
@@ -44,8 +62,8 @@ async def generate(req: GenerateRequest, request: Request):
     allowed, retry_after = await app.state.rate_limiter.allow(tenant, policy.get("rate_limit", {}))
     if not allowed:
         raise HTTPException(status_code=429, detail=f"rate limit exceeded, retry after {retry_after}s")
-
-    estimated_tokens = max(1, len(req.prompt.split()))
+    # estimate tokens using tokenizer helper (tiktoken when available)
+    estimated_tokens = estimate_tokens(req.prompt, model=req.model)
     if not await app.state.quota_mgr.consume(tenant, estimated_tokens, policy.get("quota", {})):
         raise HTTPException(status_code=402, detail="quota exceeded")
 
@@ -145,8 +163,8 @@ async def route_forward(route_name: str, path: str = "", request: Request = None
         if route_cfg.get("redact"):
             prompt = redact_text(prompt, policy.get("pii_patterns", []))
 
-        # token estimation and quota
-        estimated_tokens = max(1, len(prompt.split()))
+        # token estimation and quota (use tokenizer for accuracy)
+        estimated_tokens = estimate_tokens(prompt, model=route_cfg.get("model"))
         if not await app.state.quota_mgr.consume(tenant, estimated_tokens, route_cfg.get("quota", policy.get("quota", {}))):
             raise HTTPException(status_code=402, detail="quota exceeded")
 
@@ -181,5 +199,46 @@ async def route_forward(route_name: str, path: str = "", request: Request = None
 @app.post("/admin/reload_policies")
 async def reload_policies():
     """Admin endpoint to reload policies from disk (development convenience)."""
+    app.state.policies = PolicyStore.load(POLICY_FILE)
+    return {"status": "ok"}
+
+
+@app.post("/admin/policies")
+async def update_policies(request: Request):
+    """Update/persist policies via REST.
+
+    Accepts either JSON or raw YAML in the request body. If the received
+    payload parses correctly, the server will overwrite `POLICY_FILE` and
+    reload policies in-memory. This endpoint is primarily a development
+    convenience — protect it in production.
+    """
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "empty body")
+
+    # try JSON first, then YAML
+    parsed = None
+    try:
+        parsed = request.json if False else None
+    except Exception:
+        parsed = None
+
+    try:
+        # attempt YAML parse which also accepts JSON
+        parsed = yaml.safe_load(body)
+    except Exception as exc:
+        raise HTTPException(400, f"unable to parse body as YAML/JSON: {exc}")
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(400, "policy payload must be a mapping/object at top-level")
+
+    # persist to disk
+    try:
+        with open(POLICY_FILE, "w") as f:
+            yaml.safe_dump(parsed, f)
+    except Exception as exc:
+        raise HTTPException(500, f"failed to write policy file: {exc}")
+
+    # reload into memory
     app.state.policies = PolicyStore.load(POLICY_FILE)
     return {"status": "ok"}
